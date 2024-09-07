@@ -7,77 +7,73 @@
 import edu.princeton.cs.algs4.WeightedQuickUnionUF;
 
 public class Percolation {
-    private final WeightedQuickUnionUF ufPercolation;
-    private final WeightedQuickUnionUF ufFullCheck;
-    private final boolean[][] open;
+    private final WeightedQuickUnionUF union;
+    private final byte[][] state;
     private final int size;
     private int openCount = 0;
-    private final int virtualTop;
-    private final int virtualBottom;
+    private boolean percolates = false;
+
+    private static final byte BOTTOM = 0b001;
+    private static final byte OPEN = 0b010;
+    private static final byte TOP = 0b100;
+    private static final byte PERCOLATES = TOP | BOTTOM | OPEN;
 
     // creates n-by-n grid, with all sites initially blocked
     public Percolation(int n) {
         if (n <= 0) throw new IllegalArgumentException();
         size = n;
-        virtualTop = 0; // Virtual top node
-        virtualBottom = n * n + 1; // Virtual bottom node
 
         // UF structure for percolation (includes both virtual top and bottom)
-        ufPercolation = new WeightedQuickUnionUF(n * n + 2);
+        union = new WeightedQuickUnionUF(n * n);
 
-        // UF structure for fullness check (only includes virtual top)
-        ufFullCheck = new WeightedQuickUnionUF(n * n + 1);
-
-        open = new boolean[n][n]; // grid for tracking open sites
+        state = new byte[n][n]; // grid for tracking state sites
     }
 
-    // opens the site (row, col) if it is not open already
+    // opens the site (row, col) if it is not state already
     public void open(int row, int col) {
         row--;
         col--;
         checkBounds(row, col);
-        if (!open[row][col]) {
-            open[row][col] = true;
+        if (!isOpenSafe(row, col)) {
+            state[row][col] = OPEN;
             openCount++;
-            int unionIdx = unionIndex(row, col);
-
             // Connect to virtual top if in the first row
             if (row == 0) {
-                ufPercolation.union(virtualTop, unionIdx);
-                ufFullCheck.union(virtualTop, unionIdx); // Also in full check UF
+                state[row][col] |= TOP;
             }
 
             // Connect to virtual bottom if in the last row (only in percolation UF)
             if (row == size - 1) {
-                ufPercolation.union(unionIdx, virtualBottom);
+                state[row][col] |= BOTTOM;
             }
+            connect(row, col, row - 1, col);
+            connect(row, col, row + 1, col);
+            connect(row, col, row, col - 1);
+            connect(row, col, row, col + 1);
+        }
 
-            // Connect with adjacent open sites
-            if (isOpenSafe(row - 1, col)) {
-                ufPercolation.union(unionIdx, unionIndex(row - 1, col));
-                ufFullCheck.union(unionIdx, unionIndex(row - 1, col)); // Only for full check
-            }
-            if (isOpenSafe(row + 1, col)) {
-                ufPercolation.union(unionIdx, unionIndex(row + 1, col));
-                ufFullCheck.union(unionIdx, unionIndex(row + 1, col)); // Only for full check
-            }
-            if (isOpenSafe(row, col - 1)) {
-                ufPercolation.union(unionIdx, unionIndex(row, col - 1));
-                ufFullCheck.union(unionIdx, unionIndex(row, col - 1)); // Only for full check
-            }
-            if (isOpenSafe(row, col + 1)) {
-                ufPercolation.union(unionIdx, unionIndex(row, col + 1));
-                ufFullCheck.union(unionIdx, unionIndex(row, col + 1)); // Only for full check
-            }
+        if ((state[row][col] & PERCOLATES) == PERCOLATES) {
+            percolates = true;
         }
     }
 
-    // is the site (row, col) open?
+    private void connect(int row, int col, int crow, int ccol) {
+        var newUnionIdx = unionIndex(row, col);
+        if (isOpenSafe(crow, ccol)) {
+            var cUnionIdx = unionIndex(crow, ccol);
+            var root = union.find(cUnionIdx);
+            union.union(newUnionIdx, cUnionIdx);
+            var newRoot = union.find(cUnionIdx);
+            state[row][col] = state[newRoot / size][newRoot % size] = (byte) (state[row][col] | state[root / size][root % size] | state[newRoot / size][newRoot % size]);
+        }
+    }
+
+    // is the site (row, col) state?
     public boolean isOpen(int row, int col) {
         row--;
         col--;
         checkBounds(row, col);
-        return open[row][col];
+        return (state[row][col] & OPEN) == OPEN;
     }
 
     // is the site (row, col) full?
@@ -85,21 +81,18 @@ public class Percolation {
         row--;
         col--;
         checkBounds(row, col);
-        return ufFullCheck.find(unionIndex(row, col)) == ufFullCheck.find(virtualTop);
+        var root = union.find(unionIndex(row, col));
+        return (state[root / size][ root % size ] & (TOP | OPEN)) == (TOP | OPEN);
     }
 
-    // returns the number of open sites
+    // returns the number of state sites
     public int numberOfOpenSites() {
         return openCount;
     }
 
     // does the system percolate?
     public boolean percolates() {
-        return ufPercolation.find(virtualTop) == ufPercolation.find(virtualBottom);
-    }
-
-    // test client (optional)
-    public void main(String[] args) {
+        return percolates;
     }
 
     // Helper methods
@@ -110,13 +103,13 @@ public class Percolation {
     }
 
     private int unionIndex(int row, int col) {
-        return row * size + col + 1;
+        return row * size + col;
     }
 
     private boolean isOpenSafe(int row, int col) {
         try {
             checkBounds(row, col);
-            return open[row][col];
+            return (state[row][col] & OPEN) == OPEN;
         }
         catch (IllegalArgumentException e) {
             return false;
